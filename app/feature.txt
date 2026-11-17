@@ -1,2 +1,2 @@
 Sandbox feature notes.
-- Retarget check: corrected on main by a hotfix.
+- Retarget check: corrected on main by a hotfix, reworded on staging.
