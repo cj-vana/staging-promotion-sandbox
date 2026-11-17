@@ -1,6 +1,3 @@
-# SANDBOX COPY of .github/workflows/cut-release.yaml. Deliberate differences: the plan
-# job installs only Node, and the tag job pushes with its own job token because the
-# sandbox has no admin RELEASE_CUT_TOKEN.
 # Release on merge: when a promotion (or a releasing hotfix) lands on main with a new package
 # version, tag that commit vX.Y.Z. The tag push starts release.yaml and flatpak.yaml, which build
 # the draft release; a maintainer reviews the artifacts and clicks Publish.
@@ -28,9 +25,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# One run at a time, in order. A run that waits for the release-cut approval holds the group, and
+# queue: max keeps every run behind it; the default keeps only the newest waiting run, so a
+# releasing merge could be dropped and its version tagged on a later commit. A later run whose
+# version is already tagged ends at the plan job.
 concurrency:
   group: cut-release
   cancel-in-progress: false
+  queue: max
 
 jobs:
   plan:
@@ -55,12 +57,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Setup Node
-        # actions/setup-node v6.5.0
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
-        with:
-          node-version: '22'
-          package-manager-cache: false
+      - name: Setup Node, pnpm, and dependencies
+        uses: ./.github/actions/setup-node-pnpm
 
       - name: Decide whether this commit releases
         id: plan
@@ -75,13 +73,14 @@ jobs:
     runs-on: ubuntu-latest
     environment: release-cut
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout main
         # actions/checkout v6.1.0
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ github.sha }}
+          persist-credentials: false
 
       # --cleanup=verbatim keeps the notes' markdown headings, which git's default cleanup
       # strips as comments. release.yaml copies this message into the draft release body.
@@ -99,5 +98,42 @@ jobs:
 
       - name: Push release tag
         env:
+          RELEASE_CUT_TOKEN: ${{ secrets.RELEASE_CUT_TOKEN }}
           RELEASE_TAG: ${{ needs.plan.outputs.tag }}
-        run: git push origin "refs/tags/${RELEASE_TAG}"
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_CUT_TOKEN}" ]; then
+            echo '::error::Set release-cut environment secret RELEASE_CUT_TOKEN.'
+            exit 1
+          fi
+
+          ASKPASS="${RUNNER_TEMP}/mesh-release-askpass.sh"
+          cleanup() {
+            rm -f "${ASKPASS}"
+            unset GIT_ASKPASS GIT_TERMINAL_PROMPT RELEASE_CUT_TOKEN
+          }
+          trap cleanup EXIT
+          umask 077
+          # Keep variable expansion inside the askpass process, not while creating it.
+          # shellcheck disable=SC2016
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'case "$1" in' \
+            '  *Username*) printf "%s\n" "x-access-token" ;;' \
+            '  *) printf "%s\n" "$RELEASE_CUT_TOKEN" ;;' \
+            'esac' > "${ASKPASS}"
+          chmod 700 "${ASKPASS}"
+          export GIT_ASKPASS="${ASKPASS}"
+          export GIT_TERMINAL_PROMPT=0
+
+          git push origin "refs/tags/${RELEASE_TAG}"
+
+          {
+            echo "## Next steps"
+            echo ""
+            echo "1. Wait for **Build/Release Electron App** (\`release.yaml\`) and **Build Flatpak**"
+            echo "   to finish, including **Verify draft release tag_name**."
+            echo "2. Open the draft on GitHub Releases and confirm the tag is"
+            echo "   \`${RELEASE_TAG}\`, **not** \`untagged-*\`, and that the notes came through."
+            echo "3. Only then click **Publish release**."
+          } >> "$GITHUB_STEP_SUMMARY"
