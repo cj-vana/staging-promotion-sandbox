@@ -1,2 +1,1 @@
-Sandbox feature notes.
-- Retarget check: corrected on main by a hotfix, reworded on staging.
+Staging wording for the conflict check.
