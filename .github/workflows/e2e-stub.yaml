@@ -25,11 +25,3 @@ jobs:
             echo "FAIL_E2E is present: failing on purpose"
             exit 1
           fi
-
-  preflight:
-    name: Release preflight
-    # Sandbox check of the Promotion Doctor: a skipped gate must not count as passed.
-    if: ${{ false }}
-    runs-on: ubuntu-latest
-    steps:
-      - run: sleep 45
