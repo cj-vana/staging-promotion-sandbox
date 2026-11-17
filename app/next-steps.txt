@@ -1,0 +1,1 @@
+Next steps check: a no-release promotion says it tags nothing.
