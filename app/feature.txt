@@ -1,1 +1,2 @@
 Sandbox feature notes.
+- Retarget check: this pull request was opened against main before the rollout.
