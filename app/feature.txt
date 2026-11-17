@@ -1,1 +1,1 @@
-Main wording for the conflict check.
+Staging wording for the conflict check.
