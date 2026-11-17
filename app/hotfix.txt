@@ -1,1 +1,1 @@
-Sandbox hotfix note: shipped straight to main, then back-ported into staging.
+Hotfix while the release tag waits.
