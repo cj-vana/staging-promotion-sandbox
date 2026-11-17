@@ -1,0 +1,33 @@
+# Sandbox stand-in for e2e.yaml on pull requests to main: slow on purpose so the Promotion
+# Doctor has pending checks to wait for. A FAIL_E2E file in the head makes it fail.
+name: E2E stub
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Electron E2E (ubuntu-24.04)
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v6.1.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Stand in for the 3-OS Electron E2E
+        run: |
+          sleep 90
+          if [ -f FAIL_E2E ]; then
+            echo "FAIL_E2E is present: failing on purpose"
+            exit 1
+          fi
+
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-latest
+    steps:
+      - run: sleep 45

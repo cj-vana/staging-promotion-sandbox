@@ -1,0 +1,35 @@
+# Sandbox stand-in for ci.yaml and tests.yaml: reports the five required check names.
+name: CI stub
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "stub for the required Build & Test check"
+
+  coverage:
+    name: Coverage (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [renderer-ui, renderer-logic, main]
+    steps:
+      - run: echo "stub coverage for ${{ matrix.project }}"
+
+  merge:
+    name: Merge coverage
+    needs: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "stub merge coverage"
