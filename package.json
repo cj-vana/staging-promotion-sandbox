@@ -1,6 +1,6 @@
 {
   "name": "promotion-sandbox",
-  "version": "6.12.0",
+  "version": "6.13.0",
   "private": true,
   "description": "Throwaway rehearsal of the staging, promotion and release tag flow."
 }
