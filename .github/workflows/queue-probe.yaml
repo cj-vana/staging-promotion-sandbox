@@ -1,0 +1,15 @@
+name: Queue probe (single)
+
+on:
+  push:
+    branches: [probe/queue-single]
+
+concurrency:
+  group: queue-probe-single
+  cancel-in-progress: false
+
+jobs:
+  hold:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sleep 75
