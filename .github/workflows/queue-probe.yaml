@@ -1,0 +1,16 @@
+name: Queue probe (max)
+
+on:
+  push:
+    branches: [probe/queue-max]
+
+concurrency:
+  group: queue-probe-max
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  hold:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sleep 75
