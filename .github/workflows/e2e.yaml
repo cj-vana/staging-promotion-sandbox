@@ -1,6 +1,7 @@
 # SANDBOX COPY of .github/workflows/e2e.yaml. Triggers, job names, the matrix, job
-# conditions and the Release gates job are unchanged; the E2E and preflight steps are
-# stubs on ubuntu-latest, and a file stub/fail-e2e-<os> or stub/fail-preflight fails one.
+# conditions, each job's checkout step and the Release gates job are unchanged; the steps
+# after the checkout print the commit under test and are stubs on ubuntu-latest, and a
+# file stub/fail-e2e-<os> or stub/fail-preflight fails one.
 name: E2E
 
 env:
@@ -46,6 +47,16 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+
+      - name: Show the commit under test
+        env:
+          EVENT_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "under-test head=$(git rev-parse HEAD) tree=$(git rev-parse HEAD^{tree})"
+          echo "under-test branch=$(git rev-parse --abbrev-ref HEAD)"
+          echo "under-test github.sha=${EVENT_SHA} pr-head=${PR_HEAD_SHA:-none}"
+
       - name: Stub Electron E2E
         env:
           LEG: ${{ matrix.os }}
@@ -71,7 +82,19 @@ jobs:
       # actions/checkout v6.1.0
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          # Tags are required for LAST_TAG / bump detection.
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Show the commit under test
+        env:
+          EVENT_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "under-test head=$(git rev-parse HEAD) tree=$(git rev-parse HEAD^{tree})"
+          echo "under-test branch=$(git rev-parse --abbrev-ref HEAD)"
+          echo "under-test github.sha=${EVENT_SHA} pr-head=${PR_HEAD_SHA:-none}"
+
       - name: Stub release preflight
         run: |
           sleep 10
