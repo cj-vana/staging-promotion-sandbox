@@ -3,9 +3,9 @@ name: CI stub
 
 on:
   push:
-    branches: [main, staging]
+    branches: [main]
   pull_request:
-    branches: [main, staging]
+    branches: [main]
   merge_group:
 
 permissions:

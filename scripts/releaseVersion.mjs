@@ -1,6 +1,6 @@
 /**
- * Release version helpers shared by `promotion:open`, `release:bump`, the Promotion Doctor and
- * the release tag plan. Pure string functions: callers read and write the files.
+ * Release version helpers shared by `release:open` and the release tag plan. Pure string
+ * functions: callers read and write the files.
  */
 import { previewNextVersion } from './detectReleaseBump.mjs';
 import {
@@ -99,6 +99,22 @@ export function resolveNextVersion({ latestVersion, bump, detected }) {
   throw new Error(
     `Unknown bump ${JSON.stringify(bump)} (use auto, patch, minor, major, none or X.Y.Z)`,
   );
+}
+
+/**
+ * The version a new release has to be above. That is the latest release tag, except while a
+ * merged release waits for its tag (the Cut release approval is still pending): main's
+ * package.json is then already ahead of the tag, and counting from the tag would reuse or lower
+ * the waiting version.
+ * @param {{ tagVersion: string, mainVersion: string }} input
+ * @returns {{ version: string, waiting: boolean }} `waiting` when main's version is ahead of the tag
+ */
+export function releaseBaseline({ tagVersion, mainVersion }) {
+  assertSemver(tagVersion, 'Latest released version');
+  assertSemver(mainVersion, "main's package.json version");
+  return compareVersions(mainVersion, tagVersion) > 0
+    ? { version: mainVersion, waiting: true }
+    : { version: tagVersion, waiting: false };
 }
 
 /**

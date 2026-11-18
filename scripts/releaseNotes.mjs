@@ -1,14 +1,15 @@
 /**
- * Release notes and promotion PR text for `pnpm run promotion:open`, the Promotion Doctor and
- * the release tag plan. Pure string functions.
+ * Release notes and release pull request text for `pnpm run release:open` and the release tag
+ * plan. Pure string functions.
  */
 import { bodyHasBreakingChange, parseConventionalSubject } from './detectReleaseBump.mjs';
 
-export const PROMOTION_TITLE_PREFIX = 'Promote staging to main';
 export const RELEASE_NOTES_HEADING = '## Release notes';
 export const SCHEMA_HEADING = '## Database schema';
+/** A release commit as `release:open` writes it. */
 export const RELEASE_SUBJECT_RE = /^chore: release v\d+\.\d+\.\d+$/;
-export const BACKPORT_SUBJECT = 'chore: back-port main into staging';
+/** The same commit as the squash merge queue lands it on main. */
+const SQUASHED_RELEASE_SUBJECT_RE = /^chore: release v\d+\.\d+\.\d+ \(#\d+\)$/;
 
 const NOTE_SECTIONS = [
   ['breaking', 'Breaking changes'],
@@ -66,17 +67,13 @@ export function prNumberFromSubject(subject) {
 }
 
 /**
- * Release and back-port commits made by the tooling, which never belong in release notes.
+ * Release commits made by the tooling, which never belong in release notes.
  * @param {string} subject
  * @returns {boolean}
  */
 export function isBookkeepingSubject(subject) {
   const trimmed = subject.trim();
-  return (
-    RELEASE_SUBJECT_RE.test(trimmed) ||
-    trimmed === BACKPORT_SUBJECT ||
-    trimmed.startsWith(`${BACKPORT_SUBJECT} `)
-  );
+  return RELEASE_SUBJECT_RE.test(trimmed) || SQUASHED_RELEASE_SUBJECT_RE.test(trimmed);
 }
 
 /**
@@ -139,13 +136,12 @@ export function schemaSummary(mainVersion, headVersion) {
 }
 
 /**
- * @param {string | null} version
+ * The release pull request title, which the squash merge turns into the release commit subject.
+ * @param {string} version
  * @returns {string}
  */
-export function promotionTitle(version) {
-  return version
-    ? `${PROMOTION_TITLE_PREFIX} (v${version})`
-    : `${PROMOTION_TITLE_PREFIX} (no release)`;
+export function releaseTitle(version) {
+  return `chore: release v${version}`;
 }
 
 /**
@@ -154,29 +150,25 @@ export function promotionTitle(version) {
  *   fromVersion: string,
  *   toVersion: string,
  *   bumpReason: string,
- *   schemaMain: number,
- *   schemaHead: number,
+ *   schemaFrom: number,
+ *   schemaTo: number,
  *   risks: string[],
  *   mainSha: string,
- *   stagingSha: string,
- * }} input
+ *   since: string,
+ * }} input - `since` names what the notes count from (the latest tag, or a release waiting for one)
  * @returns {string}
  */
-export function buildPromotionBody({
+export function buildReleaseBody({
   notes,
   fromVersion,
   toVersion,
   bumpReason,
-  schemaMain,
-  schemaHead,
+  schemaFrom,
+  schemaTo,
   risks,
   mainSha,
-  stagingSha,
+  since,
 }) {
-  const version =
-    toVersion === fromVersion
-      ? `${fromVersion} (no release)`
-      : `${fromVersion} -> ${toVersion} (${bumpReason})`;
   const riskText =
     risks.length > 0 ? risks.map((risk) => `- ${risk}`).join('\n') : 'None detected.';
   return [
@@ -186,19 +178,19 @@ export function buildPromotionBody({
     '',
     '## Version',
     '',
-    version,
+    `${fromVersion} -> ${toVersion} (${bumpReason})`,
     '',
     SCHEMA_HEADING,
     '',
-    schemaSummary(schemaMain, schemaHead),
+    schemaSummary(schemaFrom, schemaTo),
     '',
     '## Risk callouts',
     '',
     riskText,
     '',
-    '## Promotion',
+    '## Release',
     '',
-    `Built by \`pnpm run promotion:open\` from \`main\` at \`${mainSha.slice(0, 7)}\` and \`staging\` at \`${stagingSha.slice(0, 7)}\`. Merge it with a merge commit, never a squash. Run \`pnpm run promotion:open\` again to rebuild it from newer refs.`,
+    `Built by \`pnpm run release:open\` from \`main\` at \`${mainSha.slice(0, 7)}\`, with the changes since \`${since}\`. Edit the release notes above if they need it: Cut release reads them when it tags the merged commit. Electron E2E on Linux, macOS and Windows and the release preflight run on this pull request, and the required \`Release gates\` check passes only when all of them do. Run \`pnpm run release:open\` again to rebuild this pull request on a newer \`main\`.`,
     '',
   ].join('\n');
 }

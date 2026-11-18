@@ -1,5 +1,5 @@
 {
-  "name": "main promotions",
+  "name": "main merge queue",
   "target": "branch",
   "enforcement": "active",
   "conditions": {
@@ -27,7 +27,8 @@
         "require_last_push_approval": false,
         "required_review_thread_resolution": false,
         "allowed_merge_methods": [
-          "merge"
+          "squash",
+          "rebase"
         ]
       }
     },
@@ -58,7 +59,7 @@
             "integration_id": 15368
           },
           {
-            "context": "Promotion Doctor",
+            "context": "Release gates",
             "integration_id": 15368
           }
         ]

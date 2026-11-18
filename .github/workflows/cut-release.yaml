@@ -1,13 +1,16 @@
 # SANDBOX COPY of .github/workflows/cut-release.yaml. Deliberate differences: the plan
 # job installs only Node, and the tag job pushes with its own job token because the
 # sandbox has no admin RELEASE_CUT_TOKEN.
-# Release on merge: when a promotion (or a releasing hotfix) lands on main with a new package
-# version, tag that commit vX.Y.Z. The tag push starts release.yaml and flatpak.yaml, which build
-# the draft release; a maintainer reviews the artifacts and clicks Publish.
+# Release on merge: when a release pull request (`pnpm run release:open`) lands on main with a new
+# package version, tag that commit vX.Y.Z. The tag push starts release.yaml and flatpak.yaml,
+# which build the draft release; a maintainer reviews the artifacts and clicks Publish.
 #
-# The version bump was made on staging by `pnpm run promotion:open` and checked before merge by
-# the Promotion Doctor and the promotion's release preflight (e2e.yaml), so this workflow only
-# decides and tags. Ordinary pushes to main end at the plan job with no approval prompt.
+# The version bump was made by the release pull request and checked before merge by the release
+# gates in e2e.yaml (Electron E2E on three operating systems and the release preflight), so this
+# workflow only decides and tags. The plan tags only a tree those gates passed: when something
+# else reached main between the release pull request's checks and its merge, it fails and says
+# to run E2E on main, then Cut release on main. Ordinary pushes to main end at the plan job with
+# no approval prompt.
 #
 # The tag job runs in the protected `release-cut` environment (maintainer approval) and pushes
 # with RELEASE_CUT_TOKEN, a PAT (or GitHub App token) owned by a repo **admin** with
@@ -16,7 +19,7 @@
 # recursion guard). That job runs no Node and installs nothing.
 #
 # Manual dispatch on main re-checks the current main commit, for example after a declined
-# approval.
+# approval or once E2E has passed on main.
 
 name: Cut release
 
@@ -28,9 +31,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# One run at a time, in order. A run that waits for the release-cut approval holds the group, and
+# queue: max keeps every run behind it; the default keeps only the newest waiting run, so a
+# releasing merge could be dropped and its version tagged on a later commit. A later run whose
+# version is already tagged ends at the plan job.
 concurrency:
   group: cut-release
   cancel-in-progress: false
+  queue: max
 
 jobs:
   plan:
@@ -40,6 +48,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      # The release gates' check runs on the commit and on the release pull request's head.
+      checks: read
     outputs:
       should_tag: ${{ steps.plan.outputs.should_tag }}
       version: ${{ steps.plan.outputs.version }}

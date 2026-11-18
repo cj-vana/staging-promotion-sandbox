@@ -1,6 +1,6 @@
 /**
- * Git plumbing for the staging promotion tooling. Every call passes an argv array (no shell),
- * and nothing here touches the working tree or the index: new trees are built in a temporary
+ * Git plumbing for the release tooling. Every call passes an argv array (no shell), and
+ * nothing here touches the working tree or the index: new trees are built in a temporary
  * index, so the caller's checkout can be dirty or on any branch.
  */
 import { spawnSync } from 'node:child_process';
@@ -77,21 +77,6 @@ export function isAncestor(cwd, ancestor, descendant) {
 }
 
 /**
- * Merge two commits without a checkout.
- * @param {string} cwd
- * @param {string} ours
- * @param {string} theirs
- * @returns {{ clean: boolean, tree: string, conflicts: string[] }}
- */
-export function mergeTree(cwd, ours, theirs) {
-  const args = ['merge-tree', '--write-tree', '--name-only', '--no-messages', ours, theirs];
-  const result = runGit(cwd, args);
-  if (result.status !== 0 && result.status !== 1) throw gitFailure(args, result);
-  const [tree, ...rest] = result.stdout.split('\n').filter(Boolean);
-  return { clean: result.status === 0, tree, conflicts: [...new Set(rest)] };
-}
-
-/**
  * Build a tree from `baseRev` with some files replaced, in a temporary index.
  * @param {string} cwd
  * @param {string} baseRev
@@ -99,7 +84,7 @@ export function mergeTree(cwd, ours, theirs) {
  * @returns {string} tree id
  */
 export function treeWithFiles(cwd, baseRev, files) {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'mesh-promotion-index-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'mesh-release-index-'));
   const env = { GIT_INDEX_FILE: path.join(dir, 'index') };
   try {
     git(cwd, ['read-tree', baseRev], { env });
@@ -155,7 +140,7 @@ export function latestReleaseTag(cwd, rev) {
 
 /**
  * @param {string} cwd
- * @param {string} range - for example `v6.8.0..origin/staging`
+ * @param {string} range - for example `v6.8.0..origin/main`
  * @param {{ noMerges?: boolean }} [options]
  * @returns {Array<{ sha: string, subject: string, body: string }>}
  */
@@ -183,6 +168,26 @@ export function commitsInRange(cwd, range, { noMerges = false } = {}) {
  */
 export function changedPaths(cwd, from, to) {
   return git(cwd, ['diff', '--name-only', from, to]).split('\n').filter(Boolean);
+}
+
+/**
+ * The paths each non-merge commit in a range changes, with its subject, so a caller can leave
+ * out commits the tooling made (a release bump) when judging what the range ships.
+ * @param {string} cwd
+ * @param {string} range - for example `v6.8.0..origin/main`
+ * @returns {Array<{ subject: string, paths: string[] }>}
+ */
+export function commitPathsInRange(cwd, range) {
+  const args = ['log', '--no-merges', '--format=%x1e%s', '--name-only', range, '--'];
+  const result = runGit(cwd, args);
+  if (result.status !== 0) throw gitFailure(args, result);
+  return result.stdout
+    .split(RECORD_SEPARATOR)
+    .filter(Boolean)
+    .map((record) => {
+      const [subject, ...files] = record.split('\n');
+      return { subject, paths: files.filter(Boolean) };
+    });
 }
 
 /**

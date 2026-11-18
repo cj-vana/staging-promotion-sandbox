@@ -1,5 +1,5 @@
 /**
- * A small GitHub REST client for the promotion tooling. The repository comes from the caller
+ * A small GitHub REST client for the release tooling. The repository comes from the caller
  * (`GITHUB_REPOSITORY`, `--repo` or the origin remote), never from a constant, so the same
  * scripts run in any repository that adopts the flow.
  */
@@ -90,14 +90,10 @@ export function createGithubApi({ token, repo, fetchImpl = fetch }) {
   }
 
   return {
-    /** @param {number} number */
-    getPull: (number) => request(`/pulls/${number}`),
-    /** @param {string} name @returns {Promise<string | null>} */
-    branchSha: async (name) => (await ref(`heads/${name}`))?.object?.sha ?? null,
     /** @param {string} sha */
     listCheckRuns: (sha) => paginate(`/commits/${sha}/check-runs?filter=latest`, 'check_runs'),
-    /** @param {string} sha */
-    combinedStatuses: (sha) => paginate(`/commits/${sha}/status`, 'statuses'),
+    /** @param {string} sha @returns {Promise<string>} the tree the commit points at */
+    commitTreeSha: async (sha) => (await request(`/git/commits/${sha}`)).tree.sha,
     /** @param {string} tag @returns {Promise<boolean>} */
     tagExists: async (tag) => (await ref(`tags/${tag}`)) !== null,
     /** @param {string} sha */

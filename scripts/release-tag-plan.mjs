@@ -5,19 +5,29 @@
  *   node scripts/release-tag-plan.mjs --sha <sha> [--notes-file <path>] [--require-tag] [--repo owner/name]
  *
  * A commit releases when its package.json version is newer than the latest release tag, has no
- * tag yet, and matches the Flatpak MetaInfo top entry. The release notes come from the
- * "## Release notes" section of the pull request merged as that commit (the promotion), or
- * from conventional commit titles when no pull request matches. Writes `should_tag`, `version`,
- * `tag` and (when tagging) multi-line `notes` to GITHUB_OUTPUT.
+ * tag yet, and matches the Flatpak MetaInfo top entry. It is tagged only when the release gates
+ * (scripts/releaseGates.mjs) passed on its exact tree: on the commit itself, or on the head of
+ * the release pull request merged as it when that head holds the same tree. A pull request's
+ * checks ran before the merge, so when anything else reached main first the trees differ and the
+ * plan blocks (exit 1) until the gates pass on main. The release notes come from the
+ * "## Release notes" section of the merged pull request, or from conventional commit titles when
+ * no pull request matches. Writes `should_tag`, `version`, `tag` and (when tagging) multi-line
+ * `notes` to GITHUB_OUTPUT.
  */
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import { parseTopReleaseVersion } from './metainfoRelease.mjs';
-import { commitsInRange, latestReleaseTag, showFile } from './promotionGit.mjs';
-import { createGithubApi, resolveRepo, resolveToken } from './promotionGithub.mjs';
-import { buildReleaseNotes, extractSection, RELEASE_NOTES_HEADING } from './promotionNotes.mjs';
+import { commitsInRange, latestReleaseTag, showFile } from './releaseGit.mjs';
+import { evaluateGates } from './releaseGates.mjs';
+import { createGithubApi, resolveRepo, resolveToken } from './releaseGithub.mjs';
+import {
+  buildReleaseNotes,
+  extractSection,
+  RELEASE_NOTES_HEADING,
+  releaseTitle,
+} from './releaseNotes.mjs';
 import {
   compareVersions,
   METAINFO_PATH,
@@ -28,20 +38,50 @@ import {
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 
 /**
- * @param {{
- *   cwd: string,
- *   sha: string,
- *   api: {
- *     tagExists: (tag: string) => Promise<boolean>,
- *     pullsForCommit: (sha: string) => Promise<Array<{ merge_commit_sha?: string, body?: string | null }>>,
- *   },
- * }} input
- * @returns {Promise<{ shouldTag: boolean, version: string, tag: string, reason: string, notes: string }>}
+ * @typedef {{
+ *   tagExists: (tag: string) => Promise<boolean>,
+ *   pullsForCommit: (sha: string) => Promise<Array<{
+ *     title?: string | null,
+ *     merge_commit_sha?: string | null,
+ *     body?: string | null,
+ *     head?: { sha?: string } | null,
+ *   }>>,
+ *   commitTreeSha: (sha: string) => Promise<string>,
+ *   listCheckRuns: (sha: string) => Promise<import('./releaseGates.mjs').CheckRun[]>,
+ * }} PlanApi
+ */
+
+/**
+ * The release gates on the tree of `sha`, read from the commit itself and from the merged pull
+ * request's head when that head holds the same tree.
+ * @param {{ sha: string, head: string | undefined, api: PlanApi }} input
+ * @returns {Promise<{ ok: boolean, notPassed: string[] }>}
+ */
+async function gatesOnTree({ sha, head, api }) {
+  const commits = [sha];
+  if (head && head !== sha) {
+    const [tree, headTree] = await Promise.all([api.commitTreeSha(sha), api.commitTreeSha(head)]);
+    if (headTree === tree) commits.push(head);
+  }
+  const runs = await Promise.all(commits.map((commit) => api.listCheckRuns(commit)));
+  return evaluateGates(runs.flat());
+}
+
+/**
+ * @param {{ cwd: string, sha: string, api: PlanApi }} input
+ * @returns {Promise<{
+ *   shouldTag: boolean,
+ *   blocked: boolean,
+ *   version: string,
+ *   tag: string,
+ *   reason: string,
+ *   notes: string,
+ * }>} `blocked` when the commit releases but its gates have not passed
  */
 export async function planReleaseTag({ cwd, sha, api }) {
   const version = readPackageVersion(showFile(cwd, sha, PACKAGE_JSON_PATH));
   const tag = `v${version}`;
-  const skip = (reason) => ({ shouldTag: false, version, tag, reason, notes: '' });
+  const skip = (reason) => ({ shouldTag: false, blocked: false, version, tag, reason, notes: '' });
 
   if (await api.tagExists(tag)) {
     return skip(`${tag} is already tagged (version unchanged since that release)`);
@@ -61,11 +101,28 @@ export async function planReleaseTag({ cwd, sha, api }) {
 
   const pulls = (await api.pullsForCommit(sha)) ?? [];
   const merged = pulls.find((pull) => pull.merge_commit_sha === sha);
-  const fromPull = merged ? extractSection(merged.body ?? '', RELEASE_NOTES_HEADING) : null;
+  const gates = await gatesOnTree({ sha, head: merged?.head?.sha, api });
+  if (!gates.ok) {
+    return {
+      shouldTag: false,
+      blocked: true,
+      version,
+      tag,
+      reason: `${tag} is new, but the release gates have not passed on this commit's tree: ${gates.notPassed.join(', ')}`,
+      notes: '',
+    };
+  }
+  // Only the release pull request's notes describe this release. When the tag lands on a later
+  // commit (E2E run on main after a miss), that commit's pull request is an ordinary one.
+  const releasePull = merged?.title?.trim() === releaseTitle(version) ? merged : undefined;
+  const fromPull = releasePull
+    ? extractSection(releasePull.body ?? '', RELEASE_NOTES_HEADING)
+    : null;
   const notes =
     fromPull || buildReleaseNotes(commitsInRange(cwd, `${latestTag}..${sha}`, { noMerges: true }));
   return {
     shouldTag: true,
+    blocked: false,
     version,
     tag,
     reason: `${tag} is new (latest release ${latestTag})`,
@@ -112,7 +169,9 @@ export async function runCli({ argv, env = process.env, cwd = process.cwd(), api
     }
     appendFileSync(env.GITHUB_OUTPUT, output);
   }
-  const decision = plan.shouldTag ? `Tag ${plan.tag}: ${plan.reason}` : `No tag: ${plan.reason}`;
+  let decision = `No tag: ${plan.reason}`;
+  if (plan.shouldTag) decision = `Tag ${plan.tag}: ${plan.reason}`;
+  else if (plan.blocked) decision = `Blocked: ${plan.reason}`;
   if (env.GITHUB_STEP_SUMMARY) {
     appendFileSync(
       env.GITHUB_STEP_SUMMARY,
@@ -127,6 +186,17 @@ export async function runCli({ argv, env = process.env, cwd = process.cwd(), api
     );
   }
   if (args.notesFile && plan.shouldTag) writeFileSync(args.notesFile, `${plan.notes}\n`);
+  if (plan.blocked) {
+    const annotation = env.GITHUB_ACTIONS === 'true' ? '::error::' : '';
+    console.error(`${annotation}Not tagging ${plan.tag}: ${plan.reason}.`);
+    console.error(
+      "This happens when a gate failed, or when something else reached main after the release pull request's checks ran.",
+    );
+    console.error(
+      'Run the E2E workflow on main (Actions, E2E, Run workflow). When it passes, run Cut release on main (Actions, Cut release, Run workflow) before anything else merges, so both runs see the same commit.',
+    );
+    return 1;
+  }
   console.info(decision);
   if (args.requireTag && !plan.shouldTag) {
     console.error('Refusing to tag: the commit no longer qualifies for a release.');
